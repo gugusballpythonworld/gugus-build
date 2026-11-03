@@ -1,0 +1,42 @@
+# Lists the newest TestFlight builds and whether Apple has finished processing them. Prints no secrets.
+name: TestFlight status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    if: github.actor == 'gugusballpythonworld' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    steps:
+      - name: Ask App Store Connect
+        run: |
+          pip install -q pyjwt cryptography requests
+          python - <<'PY'
+          import os, time, jwt, requests
+          tok = jwt.encode({"iss": os.environ["ASC_ISSUER_ID"], "iat": int(time.time()), "exp": int(time.time()) + 600, "aud": "appstoreconnect-v1"},
+                           os.environ["ASC_KEY_P8"], algorithm="ES256", headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          h = {"Authorization": "Bearer " + tok}
+          def get(path, **p):
+              r = requests.get("https://api.appstoreconnect.apple.com" + path, headers=h, params=p)
+              if r.status_code != 200: print("HTTP", r.status_code, r.text[:400]); raise SystemExit(1)
+              return r.json()
+          app = get("/v1/apps", **{"filter[bundleId]": "com.gugusreptilecare"})["data"]
+          print("apps found:", len(app))
+          app_id = app[0]["id"]
+          b = get("/v1/builds", **{"filter[app]": app_id, "sort": "-uploadedDate", "limit": 6, "include": "buildBetaDetail"})
+          beta = {x["id"]: x["attributes"] for x in b.get("included", []) if x["type"] == "buildBetaDetails"}
+          for x in b["data"]:
+              a = x["attributes"]
+              rel = x["relationships"]["buildBetaDetail"]["data"]
+              bd = beta.get(rel["id"], {}) if rel else {}
+              print(a["version"], a["uploadedDate"], "processing:", a["processingState"], "expired:", a["expired"], "internal:", bd.get("internalBuildState"), "external:", bd.get("externalBuildState"), "autoNotify:", bd.get("autoNotifyEnabled"))
+          PY
