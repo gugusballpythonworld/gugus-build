@@ -12,7 +12,7 @@ jobs:
   build:
     # Only the owner can run this, and never from a pull request.
     if: github.actor == 'gugusballpythonworld' && github.event_name == 'workflow_dispatch'
-    runs-on: macos-26
+    runs-on: macos-15-intel
     timeout-minutes: 45
     env:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
