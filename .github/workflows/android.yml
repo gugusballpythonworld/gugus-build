@@ -1,0 +1,76 @@
+# Builds the Android app. The app's code lives in a private repo and is read with a read-only key.
+# Nothing from it is printed: if the build fails only error messages (no source lines) are shown.
+name: Android
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Only the owner can run this, and never from a pull request.
+    if: github.actor == 'gugusballpythonworld' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Get the app code (read-only key, nothing printed)
+        uses: actions/checkout@v4
+        with:
+          repository: gugusballpythonworld/gugusreptilecare
+          ref: claude/gugus-reptile-care-ios-3002e7
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          path: app
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Write the signing key (if one is set)
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            printf '%s' "$KS" | base64 -d > "$RUNNER_TEMP/upload.p12"
+            echo "HAVE_KEY=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build
+        working-directory: app/android-native
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          UPLOAD_KEY_ALIAS: upload
+        run: |
+          set +e
+          if [ "$HAVE_KEY" = "1" ]; then
+            export UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.p12"
+            gradle --no-daemon --console=plain bundleRelease assembleDebug > "$RUNNER_TEMP/build.log" 2>&1
+          else
+            gradle --no-daemon --console=plain assembleDebug > "$RUNNER_TEMP/build.log" 2>&1
+          fi
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "Build failed. Error messages only:"
+            grep -E "^e: |error:|FAILURE|What went wrong|Execution failed|Could not resolve" "$RUNNER_TEMP/build.log" | sed -E 's#file://[^ ]*/android-native/#./#' | sort -u | head -40
+            exit $RC
+          fi
+          echo "Build done"
+
+      - name: Keep the files
+        uses: actions/upload-artifact@v4
+        with:
+          name: gugu-android
+          path: |
+            app/android-native/app/build/outputs/bundle/release/*.aab
+            app/android-native/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
