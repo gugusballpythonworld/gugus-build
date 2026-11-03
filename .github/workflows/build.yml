@@ -69,7 +69,7 @@ jobs:
           RC=$?
           if [ $RC -ne 0 ]; then
             echo "Archive failed. Error messages only:"
-            grep -E "error:" "$RUNNER_TEMP/archive.log" | sed -E 's#^.*(error:)#\1#' | sort -u | head -20
+            grep -E "error:" "$RUNNER_TEMP/archive.log" | sed -E 's#^.*/([^/]+:[0-9]+):[0-9]+: (error:)#\1 \2#; s#^.*(error:)#\1#' | sort -u | head -20
             exit $RC
           fi
           echo "Archive done, build $BUILD_NUMBER"
@@ -108,7 +108,7 @@ jobs:
           RC=$?
           if [ $RC -ne 0 ]; then
             echo "Upload failed. Error messages only:"
-            grep -E "error:" "$RUNNER_TEMP/export.log" | sed -E 's#^.*(error:)#\1#' | sort -u | head -20
+            grep -E "error:" "$RUNNER_TEMP/export.log" | sed -E 's#^.*/([^/]+:[0-9]+):[0-9]+: (error:)#\1 \2#; s#^.*(error:)#\1#' | sort -u | head -20
             exit $RC
           fi
           echo "Uploaded to App Store Connect"
