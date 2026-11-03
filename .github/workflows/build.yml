@@ -1,0 +1,118 @@
+# Builds the iPhone app on a free GitHub Mac and uploads it to TestFlight.
+# The app's code lives in a private repo and is read with a read-only key. Nothing from it is printed or saved here.
+name: Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Only the owner can run this, and never from a pull request.
+    if: github.actor == 'gugusballpythonworld' && github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - name: Get the app code (read-only key, nothing printed)
+        uses: actions/checkout@v4
+        with:
+          repository: gugusballpythonworld/gugusreptilecare
+          ref: claude/gugus-reptile-care-ios-3002e7
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          path: app
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Use the newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+
+      - name: Check the secrets are set
+        run: |
+          for v in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v is missing"; exit 1; fi
+          done
+          if [ -z "${{ secrets.ASC_KEY_P8 }}" ]; then echo "::error::Secret ASC_KEY_P8 is missing"; exit 1; fi
+
+      - name: Generate the Xcode project
+        working-directory: app/ios-native
+        run: |
+          brew install xcodegen > /dev/null 2>&1
+          xcodegen generate > /dev/null 2>&1
+
+      - name: Write the App Store Connect key
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s' "${{ secrets.ASC_KEY_P8 }}" > "$RUNNER_TEMP/keys/AuthKey_${ASC_KEY_ID}.p8"
+
+      # Output goes to a file. If the build fails only the error messages are shown (no source lines),
+      # so the public log can never show the app's code.
+      - name: Archive
+        working-directory: app/ios-native
+        run: |
+          BUILD_NUMBER=$(date -u +%y%m%d%H%M)
+          set +e
+          xcodebuild archive \
+            -project GuguReptileCare.xcodeproj -scheme GuguReptileCare -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" > "$RUNNER_TEMP/archive.log" 2>&1
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "Archive failed. Error messages only:"
+            grep -E "error:" "$RUNNER_TEMP/archive.log" | sed -E 's#^.*(error:)#\1#' | sort -u | head -20
+            exit $RC
+          fi
+          echo "Archive done, build $BUILD_NUMBER"
+
+      - name: Put the entitlements on the app
+        run: |
+          codesign --force --sign - --entitlements app/ios-native/GuguReptileCare/Resources/GuguReptileCare.entitlements "$RUNNER_TEMP/App.xcarchive/Products/Applications/GuguReptileCare.app" > /dev/null 2>&1
+          codesign -d --entitlements :- "$RUNNER_TEMP/App.xcarchive/Products/Applications/GuguReptileCare.app" 2>/dev/null > "$RUNNER_TEMP/ent.plist"
+          grep -q "aps-environment" "$RUNNER_TEMP/ent.plist" || { echo "::error::The app is missing the notification entitlement"; exit 1; }
+
+      - name: Upload to App Store Connect
+        working-directory: app/ios-native
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          set +e
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" > "$RUNNER_TEMP/export.log" 2>&1
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "Upload failed. Error messages only:"
+            grep -E "error:" "$RUNNER_TEMP/export.log" | sed -E 's#^.*(error:)#\1#' | sort -u | head -20
+            exit $RC
+          fi
+          echo "Uploaded to App Store Connect"
+
+      - name: Remove the keys
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys" app
