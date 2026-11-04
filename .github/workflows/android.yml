@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: gugusballpythonworld/gugusreptilecare
-          ref: claude/gugus-reptile-care-ios-3002e7
+          ref: main
           ssh-key: ${{ secrets.DEPLOY_KEY }}
           path: app
           persist-credentials: false
