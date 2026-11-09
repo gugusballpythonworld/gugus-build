@@ -73,7 +73,8 @@ jobs:
           mkdir -p ipad
           for orient in portrait landscape; do
             extra=""; [ "$orient" = landscape ] && extra="-landscape"
-            for spec in "1:" "0:" "3:" "4:" "2:feeding" "2:growth" "2:climate" "2:food" "2:morph" "2:card" "2:photos" "2:plans" "2:wrapped" "2:groups" "2:settings"; do
+            xcrun simctl launch "$UDID" com.gugusreptilecare -demo; sleep 15; xcrun simctl terminate "$UDID" com.gugusreptilecare|| true
+          for spec in "1:" "0:" "3:" "4:" "2:feeding" "2:growth" "2:climate" "2:food" "2:morph" "2:card" "2:photos" "2:plans" "2:wrapped" "2:groups" "2:settings" "2:vet"; do
               tab="${spec%%:*}"; open="${spec#*:}"
               args="-demo -tab $tab $extra"
               [ -n "$open" ] && args="$args -open $open"
