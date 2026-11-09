@@ -42,7 +42,7 @@ jobs:
           for rt,devs in d.items():
               if 'iOS' not in rt: continue
               for x in devs:
-                  if x['name'].startswith('iPad') and ('11-inch' in x['name'] or 'Air' in x['name']):
+                  if x['name'].startswith('iPad') and '11-inch' in x['name']:
                       best=x
           if best is None:
               for rt,devs in d.items():
