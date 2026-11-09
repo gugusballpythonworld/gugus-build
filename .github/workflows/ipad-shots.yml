@@ -1,0 +1,90 @@
+# Takes screenshots of the iPad app with sample data (upright and sideways) on a free GitHub Mac. Nothing is signed or uploaded to Apple.
+# The app's code lives in a private repo and is read with a read-only key. Only screenshots are kept, and only for a day.
+name: iPad screenshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipad:
+    if: github.actor == 'gugusballpythonworld' && github.event_name == 'workflow_dispatch'
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - name: Get the app code (read-only key, nothing printed)
+        uses: actions/checkout@v4
+        with:
+          repository: gugusballpythonworld/gugusreptilecare
+          ref: main
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          path: app
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Use the newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+      - name: Generate the Xcode project
+        working-directory: app/ios-native
+        run: |
+          brew install xcodegen > /dev/null 2>&1
+          xcodegen generate > /dev/null 2>&1
+      - name: Pick an iPad simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          best=None
+          for rt,devs in d.items():
+              if 'iOS' not in rt: continue
+              for x in devs:
+                  if x['name'].startswith('iPad') and ('11-inch' in x['name'] or 'Air' in x['name']):
+                      best=x
+          if best is None:
+              for rt,devs in d.items():
+                  for x in devs:
+                      if x['name'].startswith('iPad'): best=x
+          print(best['udid'])
+          ")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+      - name: Build (error messages only if it fails)
+        working-directory: app/ios-native
+        run: |
+          xcodebuild build -project GuguReptileCare.xcodeproj -scheme GuguReptileCare \
+            -destination "id=${{ steps.sim.outputs.udid }}" -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/build.log" 2>&1
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            grep -E "error:" "$RUNNER_TEMP/build.log" | sed -E 's#^.*/([^/]+:[0-9]+):[0-9]+: (error:)#\1 \2#' | sort -u | head -20
+            exit $RC
+          fi
+      - name: Screenshots
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -path "*Debug-iphonesimulator/GuguReptileCare.app" -maxdepth 6 | head -1)
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl ui "$UDID" appearance light || true
+          mkdir -p ipad
+          for orient in portrait landscape; do
+            extra=""; [ "$orient" = landscape ] && extra="-landscape"
+            for spec in "1:" "0:" "3:" "4:" "2:feeding" "2:growth" "2:climate" "2:food" "2:morph" "2:card" "2:photos" "2:plans" "2:wrapped" "2:groups" "2:settings"; do
+              tab="${spec%%:*}"; open="${spec#*:}"
+              args="-demo -tab $tab $extra"
+              [ -n "$open" ] && args="$args -open $open"
+              xcrun simctl launch "$UDID" com.gugusreptilecare $args
+              sleep 9
+              xcrun simctl io "$UDID" screenshot "ipad/$orient-tab$tab-${open:-main}.png"
+              xcrun simctl terminate "$UDID" com.gugusreptilecare || true
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipad-screenshots
+          path: ipad
+          retention-days: 1
