@@ -43,6 +43,12 @@ jobs:
             echo "HAVE_KEY=1" >> "$GITHUB_ENV"
           fi
 
+      - name: Check for the Google Play key (if one is set)
+        env:
+          PLAY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$PLAY" ]; then echo "HAVE_PLAY=1" >> "$GITHUB_ENV"; fi
+
       - name: Build
         working-directory: app/android-native
         env:
@@ -74,3 +80,13 @@ jobs:
             app/android-native/app/build/outputs/bundle/release/*.aab
             app/android-native/app/build/outputs/apk/debug/*.apk
           retention-days: 7
+
+      - name: Send to Google Play internal testing (if set up)
+        if: env.HAVE_KEY == '1' && env.HAVE_PLAY == '1'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.gugusreptilecare
+          releaseFiles: app/android-native/app/build/outputs/bundle/release/*.aab
+          track: internal
+          status: draft
