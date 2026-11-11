@@ -1,0 +1,113 @@
+# Audit screenshots of the iPhone and iPad app with sample data, upright and sideways, on a free GitHub Mac.
+# Nothing is signed, uploaded to Apple, or sent to the server: the app's "-demo" mode never talks to it.
+# The app's code is read with the read-only key. Only screenshots are kept, for three days.
+name: Audit screenshots (iPhone and iPad)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shots:
+    if: github.actor == 'gugusballpythonworld' && github.event_name == 'workflow_dispatch'
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iphone, ipad]
+    steps:
+      - name: Get the app code (read-only key, nothing printed)
+        uses: actions/checkout@v4
+        with:
+          repository: gugusballpythonworld/gugusreptilecare
+          ref: main
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          path: app
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Use the newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+      - name: Generate the Xcode project
+        working-directory: app/ios-native
+        run: |
+          brew install xcodegen > /dev/null 2>&1
+          xcodegen generate > /dev/null 2>&1
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | KIND=${{ matrix.device }} python3 -c "
+          import json,sys,os
+          kind=os.environ['KIND']
+          d=json.load(sys.stdin)['devices']
+          best=None
+          for rt,devs in d.items():
+              if 'iOS' not in rt: continue
+              for x in devs:
+                  n=x['name']
+                  if kind=='ipad' and n.startswith('iPad') and '11-inch' in n: best=x
+                  if kind=='iphone' and n.startswith('iPhone') and 'Plus' not in n and 'Max' not in n and 'SE' not in n and 'Pro' not in n: best=x
+          if best is None:
+              for rt,devs in d.items():
+                  for x in devs:
+                      if x['name'].lower().startswith(kind): best=x
+          print(best['udid'])
+          print(best['name'], file=sys.stderr)
+          ")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+      - name: Build (error messages only if it fails)
+        working-directory: app/ios-native
+        run: |
+          xcodebuild build -project GuguReptileCare.xcodeproj -scheme GuguReptileCare \
+            -destination "id=${{ steps.sim.outputs.udid }}" -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/build.log" 2>&1
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            grep -E "error:" "$RUNNER_TEMP/build.log" | sed -E 's#^.*/([^/]+:[0-9]+):[0-9]+: (error:)#\1 \2#' | sort -u | head -20
+            exit $RC
+          fi
+      - name: Screenshots
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -path "*Debug-iphonesimulator/GuguReptileCare.app" -maxdepth 6 | head -1)
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl ui "$UDID" appearance light || true
+          OUT="shots/${{ matrix.device }}"; mkdir -p "$OUT"
+          snap() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" > /dev/null 2>&1; }
+          # Signed out: the sign-in screen.
+          xcrun simctl launch "$UDID" com.gugusreptilecare > /dev/null; sleep 10; snap "portrait-signin"; xcrun simctl terminate "$UDID" com.gugusreptilecare || true
+          # Warm-up run so later launches are quick.
+          xcrun simctl launch "$UDID" com.gugusreptilecare -demo > /dev/null; sleep 15; xcrun simctl terminate "$UDID" com.gugusreptilecare || true
+          ORIENTS="portrait"; [ "${{ matrix.device }}" = ipad ] && ORIENTS="portrait landscape"
+          for orient in $ORIENTS; do
+            extra=""; [ "$orient" = landscape ] && extra="-landscape"
+            for spec in "0:" "1:" "2:" "3:" "4:" \
+                        "2:feeding" "2:growth" "2:climate" "2:food" "2:morph" "2:card" "2:photos" "2:plans" "2:wrapped" \
+                        "2:groups" "2:share" "2:suggest" "2:settings" "2:account" "2:region" "2:trash" "2:learn" "2:profile" \
+                        "2:vet" "2:vets" "2:admin" "2:people" "2:activity"; do
+              tab="${spec%%:*}"; open="${spec#*:}"
+              args="-demo -tab $tab $extra"
+              [ -n "$open" ] && args="$args -open $open"
+              xcrun simctl launch "$UDID" com.gugusreptilecare $args > /dev/null
+              sleep 9
+              snap "$orient-tab$tab-${open:-main}"
+              xcrun simctl terminate "$UDID" com.gugusreptilecare || true
+            done
+          done
+          # Dark mode: the main tabs.
+          xcrun simctl ui "$UDID" appearance dark || true
+          for tab in 0 1 2; do
+            xcrun simctl launch "$UDID" com.gugusreptilecare -demo -tab $tab > /dev/null; sleep 9; snap "dark-tab$tab-main"; xcrun simctl terminate "$UDID" com.gugusreptilecare || true
+          done
+          ls "$OUT" | wc -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-${{ matrix.device }}
+          path: shots
+          retention-days: 3
