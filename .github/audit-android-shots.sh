@@ -33,10 +33,11 @@ for orient in portrait landscape; do
     else
       adb shell am start -S -n $PKG/.MainActivity --ez demo true --ei tab "$tab" > /dev/null
     fi
-    sleep 7
+    sleep 12
     snap "$orient-tab$tab-${open:-main}"
   done
 done
 adb shell settings put system user_rotation 0
 adb shell wm size reset || true
+adb logcat -b crash -d > "$OUT/crash.log" 2>&1 || true
 ls "$OUT" | wc -l
