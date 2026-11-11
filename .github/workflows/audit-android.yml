@@ -5,6 +5,10 @@ name: Audit screenshots (Android phone and tablet)
 
 on:
   workflow_dispatch:
+    inputs:
+      devices:
+        description: 'phone, tablet, or both'
+        default: 'both'
 
 permissions:
   contents: read
@@ -17,11 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - device: phone
-            profile: pixel_7
-          - device: tablet
-            profile: pixel_tablet
+        device: ${{ fromJSON(inputs.devices == 'both' && '["phone","tablet"]' || format('["{0}"]', inputs.devices)) }}
     steps:
       - name: Get the screenshot script
         uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
-          profile: ${{ matrix.profile }}
+          profile: ${{ matrix.device == 'phone' && 'pixel_7' || 'pixel_tablet' }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash "$GITHUB_WORKSPACE/.github/audit-android-shots.sh" "${{ matrix.device }}" "$RUNNER_TEMP/app.apk"
