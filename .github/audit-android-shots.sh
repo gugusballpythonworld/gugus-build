@@ -3,11 +3,14 @@
 DEVICE="$1"; APK="$2"
 OUT="$GITHUB_WORKSPACE/shots/$DEVICE"; mkdir -p "$OUT"
 PKG=com.gugusreptilecare
-adb install -r "$APK" > /dev/null
+adb install -r -g "$APK" > /dev/null
+# Answer the permission questions up front, so a system box never covers the next screenshots.
+for perm in ACCESS_COARSE_LOCATION ACCESS_FINE_LOCATION POST_NOTIFICATIONS CAMERA READ_MEDIA_IMAGES; do adb shell pm grant $PKG android.permission.$perm 2>/dev/null || true; done
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 0
 adb shell cmd uimode night no || true
-snap() { adb exec-out screencap -p > "$OUT/$1.png"; }
+# Named by the real shape of the picture: a tablet's natural direction can be sideways.
+snap() { adb exec-out screencap -p > "$OUT/tmp.png"; python3 -c "import struct,sys;d=open(sys.argv[1],'rb').read(24);w,h=struct.unpack('>II',d[16:24]);print('landscape' if w>h else 'portrait')" "$OUT/tmp.png" > "$OUT/shape"; mv "$OUT/tmp.png" "$OUT/$(cat "$OUT/shape")-${1#*-}.png"; rm -f "$OUT/shape"; }
 
 # Signed out: the sign-in screen.
 adb shell am start -S -n $PKG/.MainActivity > /dev/null; sleep 10; snap "portrait-signin"
@@ -15,7 +18,7 @@ adb shell am start -S -n $PKG/.MainActivity > /dev/null; sleep 10; snap "portrai
 # Warm-up run.
 adb shell am start -S -n $PKG/.MainActivity --ez demo true > /dev/null; sleep 12
 
-SPECS="0: 1: 2: 3: 4: 2:feeding 2:growth 2:climate 2:food 2:morph 2:card 2:photos 2:plans 2:wrapped 2:groups 2:share 2:suggest 2:settings 2:account 2:region 2:trash 2:learn 2:profile 2:vet 2:vets 2:admin 2:people 2:activity"
+SPECS="0: 1: 2: 3: 4: 2:feeding 2:growth 2:climate 2:food 2:morph 2:card 2:photos 2:plans 2:wrapped 2:groups 2:share 2:suggest 2:settings 2:account 2:region 2:trash 2:learn 2:profile 2:vet 2:admin 2:people 2:activity 2:vets"
 for orient in portrait landscape; do
   if [ "$orient" = landscape ]; then adb shell settings put system user_rotation 1; else adb shell settings put system user_rotation 0; fi
   sleep 2
