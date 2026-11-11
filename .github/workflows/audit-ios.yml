@@ -94,8 +94,17 @@ jobs:
           # Warm-up run so later launches are quick.
           xcrun simctl launch "$UDID" com.gugusreptilecare -demo > /dev/null; sleep 15; xcrun simctl terminate "$UDID" com.gugusreptilecare || true
           ORIENTS="portrait"; [ "${{ matrix.device }}" = ipad ] && ORIENTS="portrait landscape"
+          # Full-screen apps, not floating windows (iPadOS 26 can open apps as windows).
+          xcrun simctl spawn "$UDID" defaults write com.apple.springboard SBChamoisWindowingEnabled -bool false || true
           for orient in $ORIENTS; do
-            extra=""; [ "$orient" = landscape ] && extra="-landscape"
+            extra=""
+            if [ "$orient" = landscape ]; then
+              extra="-landscape"
+              # Turn the whole simulated iPad sideways, the way a person would.
+              open -a Simulator --args -CurrentDeviceUDID "$UDID"; sleep 20
+              osascript -e 'tell application "Simulator" to activate' -e 'delay 2' -e 'tell application "System Events" to key code 123 using command down' || echo "rotate failed"
+              sleep 5
+            fi
             for spec in "0:" "1:" "2:" "3:" "4:" \
                         "2:feeding" "2:growth" "2:climate" "2:food" "2:morph" "2:card" "2:photos" "2:plans" "2:wrapped" \
                         "2:groups" "2:share" "2:suggest" "2:settings" "2:account" "2:region" "2:trash" "2:learn" "2:profile" \
