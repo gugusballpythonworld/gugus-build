@@ -5,6 +5,10 @@ name: Audit screenshots (iPhone and iPad)
 
 on:
   workflow_dispatch:
+    inputs:
+      devices:
+        description: 'iphone, ipad, or both'
+        default: 'both'
 
 permissions:
   contents: read
@@ -17,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [iphone, ipad]
+        device: ${{ fromJSON(inputs.devices == 'both' && '["iphone","ipad"]' || format('["{0}"]', inputs.devices)) }}
     steps:
       - name: Get the app code (read-only key, nothing printed)
         uses: actions/checkout@v4
@@ -45,7 +49,9 @@ jobs:
           kind=os.environ['KIND']
           d=json.load(sys.stdin)['devices']
           best=None
-          for rt,devs in d.items():
+          import re
+          ver=lambda rt: [int(x) for x in re.findall(r'\d+', rt.split('iOS')[-1])]
+          for rt,devs in sorted(d.items(), key=lambda kv: ver(kv[0]) if 'iOS' in kv[0] else []):
               if 'iOS' not in rt: continue
               for x in devs:
                   n=x['name']
@@ -64,6 +70,7 @@ jobs:
       - name: Build (error messages only if it fails)
         working-directory: app/ios-native
         run: |
+          set +e
           xcodebuild build -project GuguReptileCare.xcodeproj -scheme GuguReptileCare \
             -destination "id=${{ steps.sim.outputs.udid }}" -configuration Debug \
             CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/build.log" 2>&1
@@ -77,6 +84,8 @@ jobs:
           UDID="${{ steps.sim.outputs.udid }}"
           APP=$(find ~/Library/Developer/Xcode/DerivedData -path "*Debug-iphonesimulator/GuguReptileCare.app" -maxdepth 6 | head -1)
           xcrun simctl install "$UDID" "$APP"
+          # Answer the permission questions up front, so a system box never covers the next screenshots.
+          for s in location photos camera; do xcrun simctl privacy "$UDID" grant $s com.gugusreptilecare || true; done
           xcrun simctl ui "$UDID" appearance light || true
           OUT="shots/${{ matrix.device }}"; mkdir -p "$OUT"
           snap() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" > /dev/null 2>&1; }
