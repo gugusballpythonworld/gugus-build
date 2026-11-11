@@ -23,6 +23,8 @@ for orient in portrait landscape; do
   if [ "$orient" = landscape ]; then R=1; else R=0; fi
   adb shell settings put system user_rotation $R
   adb shell cmd window user-rotation lock $R || true
+  # The phone emulator ignores rotation, so give it a sideways screen size instead (same layout the app gets when turned).
+  if [ "$DEVICE" = phone ]; then if [ $R = 1 ]; then adb shell wm size 2400x1080; else adb shell wm size reset; fi; fi
   sleep 3
   for spec in $SPECS; do
     tab="${spec%%:*}"; open="${spec#*:}"
@@ -36,4 +38,5 @@ for orient in portrait landscape; do
   done
 done
 adb shell settings put system user_rotation 0
+adb shell wm size reset || true
 ls "$OUT" | wc -l
