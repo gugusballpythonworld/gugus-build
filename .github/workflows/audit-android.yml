@@ -9,6 +9,9 @@ on:
       devices:
         description: 'phone, tablet, or both'
         default: 'both'
+      only:
+        description: 'Only these pages, e.g. 2:card (empty: every page)'
+        default: ''
 
 permissions:
   contents: read
@@ -65,7 +68,7 @@ jobs:
           profile: ${{ matrix.device == 'phone' && 'pixel_7' || 'pixel_tablet' }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash "$GITHUB_WORKSPACE/.github/audit-android-shots.sh" "${{ matrix.device }}" "$RUNNER_TEMP/app.apk"
+          script: ONLY="${{ inputs.only }}" bash "$GITHUB_WORKSPACE/.github/audit-android-shots.sh" "${{ matrix.device }}" "$RUNNER_TEMP/app.apk"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

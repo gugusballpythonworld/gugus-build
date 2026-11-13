@@ -19,6 +19,7 @@ adb shell am start -S -n $PKG/.MainActivity > /dev/null; sleep 10; snap "portrai
 adb shell am start -S -n $PKG/.MainActivity --ez demo true > /dev/null; sleep 12
 
 SPECS="0: 1: 2: 3: 4: 2:feeding 2:growth 2:climate 2:food 2:morph 2:card 2:photos 2:plans 2:wrapped 2:groups 2:share 2:suggest 2:settings 2:account 2:region 2:trash 2:learn 2:profile 2:vet 2:admin 2:people 2:activity 2:vets"
+[ -n "$ONLY" ] && SPECS="$ONLY"
 for orient in portrait landscape; do
   if [ "$orient" = landscape ]; then R=1; else R=0; fi
   adb shell settings put system user_rotation $R
