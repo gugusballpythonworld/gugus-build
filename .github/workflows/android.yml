@@ -89,4 +89,4 @@ jobs:
           packageName: com.gugusreptilecare
           releaseFiles: app/android-native/app/build/outputs/bundle/release/*.aab
           track: internal
-          status: draft
+          status: completed
